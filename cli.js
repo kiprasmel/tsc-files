@@ -1,12 +1,8 @@
 #!/usr/bin/env node
 
-const { spawnSync } = require('child_process')
-const fs = require('fs')
-const { dirname, join } = require('path')
-
-const randomChars = () => {
-  return Math.random().toString(36).slice(2)
-}
+const { spawnSync } = require("child_process")
+const fs = require("fs")
+const { dirname, join } = require("path")
 
 const resolveFromModule = (moduleName, ...paths) => {
   const modulePath = dirname(require.resolve(`${moduleName}/package.json`))
@@ -19,12 +15,9 @@ const resolveFromRoot = (...paths) => {
 
 const args = process.argv.slice(2)
 
-const argsProjectIndex = args.findIndex(arg =>
-  ['-p', '--project'].includes(arg),
-)
+const argsProjectIndex = args.findIndex(arg => ["-p", "--project"].includes(arg))
 
-const argsProjectValue =
-  argsProjectIndex !== -1 ? args[argsProjectIndex + 1] : undefined
+const argsProjectValue = argsProjectIndex !== -1 ? args[argsProjectIndex + 1] : undefined
 
 const files = args.filter(file => /\.(ts|tsx)$/.test(file))
 if (files.length === 0) {
@@ -38,51 +31,45 @@ if (argsProjectIndex !== -1) {
 }
 
 // Load existing config
-const tsconfigPath = argsProjectValue || resolveFromRoot('tsconfig.json')
-const tsconfigContent = fs.readFileSync(tsconfigPath).toString()
-// Use 'eval' to read the JSON as regular JavaScript syntax so that comments are allowed
-let tsconfig = {}
-eval(`tsconfig = ${tsconfigContent}`)
+const tsconfigPath = argsProjectValue || resolveFromRoot("tsconfig.json")
 
-// Write a temp config file
-const tmpTsconfigPath = resolveFromRoot(`tsconfig.${randomChars()}.json`)
+/**
+ * write a temp config file.
+ * previously, the name used to be random,
+ * but this obviously invalidates cache / incrememental builds,
+ * and makes things an order of magnitude slower.
+ * so, static it is.
+ */
+const TMP_CONFIG_FILE = "tsconfig.temp.json"
+const tmpTsconfigPath = resolveFromRoot(TMP_CONFIG_FILE)
 const tmpTsconfig = {
-  ...tsconfig,
-  compilerOptions: {
-    ...tsconfig.compilerOptions,
-    skipLibCheck: true,
-  },
+  extends: tsconfigPath,
   files,
-  include: [],
 }
 fs.writeFileSync(tmpTsconfigPath, JSON.stringify(tmpTsconfig, null, 2))
 
 // Attach cleanup handlers
 let didCleanup = false
-for (const eventName of ['exit', 'SIGHUP', 'SIGINT', 'SIGTERM']) {
+for (const eventName of ["exit", "SIGHUP", "SIGINT", "SIGTERM"]) {
   process.on(eventName, exitCode => {
     if (didCleanup) return
     didCleanup = true
 
     fs.unlinkSync(tmpTsconfigPath)
 
-    if (eventName !== 'exit') {
+    if (eventName !== "exit") {
       process.exit(exitCode)
     }
   })
 }
 
-// Type-check our files
+// Type-check the files
 const { status } = spawnSync(
-  // See: https://github.com/gustavopch/tsc-files/issues/44#issuecomment-1250783206
   process.versions.pnp
-    ? 'tsc'
-    : resolveFromModule(
-        'typescript',
-        `../.bin/tsc${process.platform === 'win32' ? '.cmd' : ''}`,
-      ),
-  ['-p', tmpTsconfigPath, ...remainingArgsToForward],
-  { stdio: 'inherit' },
+    ? "tsc"
+    : resolveFromModule("typescript", `../.bin/tsc${process.platform === "win32" ? ".cmd" : ""}`),
+  ["-p", TMP_CONFIG_FILE, "--skipLibCheck", ...remainingArgsToForward],
+  { stdio: "inherit" },
 )
 
 process.exit(status)
